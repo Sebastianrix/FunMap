@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Territorial Zones — Interactive Scenario</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<style>
+:root{color-scheme:dark;--bg:#0b1421;--panel:#142338;--muted:#a7b6c8;--blue:#347cda;--yellow:#e3b638;--red:#e35c62}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#eef4fa;font:15px system-ui,-apple-system,Segoe UI,sans-serif}header{padding:16px 22px;display:flex;justify-content:space-between;gap:14px;align-items:center}h1{font-size:21px;margin:0}header p{margin:4px 0 0;color:var(--muted);font-size:12px}.tag{font-size:12px;color:#b7c9dc;background:#1b304a;border:1px solid #34516e;border-radius:20px;padding:7px 11px}main{padding:0 16px 16px}.map-wrap{position:relative;height:min(72vh,780px);min-height:440px;border:1px solid #36516b;border-radius:14px;overflow:hidden;background:#203347}#map{height:100%;width:100%}.leaflet-container{background:#203347}.slider{position:absolute;top:0;bottom:0;width:0;z-index:600;pointer-events:none;border-left:3px dashed #fff9;filter:drop-shadow(0 0 3px #000)}.slider.blue{border-color:#7ab4ff}.slider.red{border-color:#ff9399}.handle{position:absolute;top:48%;left:0;transform:translate(-50%,-50%);width:39px;height:65px;border-radius:12px;border:2px solid #fff;background:#16283b;color:white;display:grid;place-items:center;font-size:22px;cursor:ew-resize;touch-action:none;pointer-events:auto;box-shadow:0 3px 12px #0008}.slider.blue .handle{background:#225aa3}.slider.red .handle{background:#9b333b}.readout{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:500;background:#0b1624df;padding:9px 16px;border-radius:9px;border:1px solid #4b627a;white-space:nowrap;font-variant-numeric:tabular-nums}.footer{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:13px}.stat{background:var(--panel);border:1px solid #30465c;border-radius:11px;padding:13px 15px}.stat strong{font-size:25px;display:block;margin-top:4px}.stat small{color:var(--muted)}.stripe{height:5px;border-radius:4px}.stripe.usa-stripes{background:repeating-linear-gradient(135deg,#c93642 0 8px,#fff 8px 16px)}.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:13px;color:var(--muted);font-size:13px}button{background:#223b59;color:white;border:1px solid #52708c;border-radius:8px;padding:8px 12px;cursor:pointer}button:hover{background:#305377}.note{margin-left:auto;max-width:700px}#status{color:#f1c66a} @media(max-width:640px){header{align-items:start;flex-direction:column}.map-wrap{min-height:450px}.footer{gap:6px}.stat{padding:9px}.stat strong{font-size:19px}.stat small{font-size:11px}.readout{font-size:11px}.note{margin-left:0}}
+</style>
+</head>
+<body>
+<header><div><h1>Territorial Zones — Russia / Ukraine</h1><p>Interactive hypothetical partition model · Geographic boundaries are not political endorsements</p></div><span class="tag">SCENARIO EDITOR</span></header>
+<main><div class="map-wrap" id="wrap"><div id="map"></div><div class="readout" id="readout">Loading geographic boundaries…</div><div class="slider blue" id="left"><div class="handle" role="slider" aria-label="EU eastern boundary" tabindex="0" aria-valuemin="0" aria-valuemax="100">↔</div></div><div class="slider red" id="right"><div class="handle" role="slider" aria-label="USA western boundary" tabindex="0" aria-valuemin="0" aria-valuemax="100">↔</div></div></div>
+<div class="footer"><div class="stat"><div class="stripe" style="background:var(--blue)"></div><small>EU / NATO · area share</small><strong id="eu">—</strong></div><div class="stat"><div class="stripe" style="background:var(--yellow)"></div><small>Turkia / NATO · area share</small><strong id="turkia">—</strong></div><div class="stat"><div class="stripe usa-stripes"></div><small>USA / NATO · area share</small><strong id="usa">—</strong></div></div>
+<div class="controls"><button id="reset">Reset boundaries</button><span id="status">Loading boundaries…</span><span class="note">Area shares are approximate geodesic polygon measurements, not population approval or welfare scores. Ukraine is included in the editable mask for this scenario; its internationally recognized borders remain visible.</span></div></main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+<script>
+/* Runs from a local HTML file with an internet connection. Geographic mask: Natural Earth GeoJSON.
+   A longitude clipping operation is performed ONLY on Russia and Ukraine features.
+   Other countries are never modified. */
+const map=L.map('map',{worldCopyJump:false,minZoom:2,maxZoom:8,zoomControl:true}).setView([59,75],3);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',{attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:19,noWrap:true}).addTo(map);
+const wrap=document.getElementById('wrap'), left=document.getElementById('left'),right=document.getElementById('right'),readout=document.getElementById('readout'),status=document.getElementById('status');
+const colors=['#347cda','#e3b638','#e35c62'];
+// Screen-aligned red and white diagonal stripes, clipped to the USA zone polygons.
+const zoneRenderer=L.svg();
+function ensureUSAPattern(){
+  const svg=zoneRenderer._container;
+  if(!svg||svg.querySelector('#usa-diagonal-stripes'))return;
+  const ns='http://www.w3.org/2000/svg';
+  const defs=document.createElementNS(ns,'defs');
+  const pattern=document.createElementNS(ns,'pattern');
+  pattern.setAttribute('id','usa-diagonal-stripes');
+  pattern.setAttribute('patternUnits','userSpaceOnUse');
+  pattern.setAttribute('width','16');pattern.setAttribute('height','16');
+  pattern.setAttribute('patternTransform','rotate(45)');
+  const base=document.createElementNS(ns,'rect');
+  base.setAttribute('width','16');base.setAttribute('height','16');base.setAttribute('fill','#fff');
+  const stripe=document.createElementNS(ns,'rect');
+  stripe.setAttribute('width','8');stripe.setAttribute('height','16');stripe.setAttribute('fill','#c93642');
+  pattern.append(base,stripe);defs.appendChild(pattern);svg.insertBefore(defs,svg.firstChild);
+}
+
+let bounds=[37,145],features=[],layers=[],dragging=null,areaShares=[0,0,0],loaded=false;
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+function longitudeAtPixel(x){return map.containerPointToLatLng([x,map.getSize().y/2]).lng}
+function pixelAtLongitude(lon){return map.latLngToContainerPoint([50,lon]).x}
+function setBoundary(which,lon){lon=clamp(lon,20,179);if(which===0)bounds[0]=Math.min(lon,bounds[1]-2);else bounds[1]=Math.max(lon,bounds[0]+2);render()}
+function updateHandles(){left.style.left=pixelAtLongitude(bounds[0])+'px';right.style.left=pixelAtLongitude(bounds[1])+'px';readout.textContent=`EU ≤ ${bounds[0].toFixed(1)}°E  |  Turkia  |  USA ≥ ${bounds[1].toFixed(1)}°E`}
+function clearLayers(){layers.forEach(l=>map.removeLayer(l));layers=[]}
+// Turf bboxClip works in lon/lat and preserves exact existing coast/border geometry.
+// Russia spans the antimeridian, so normalize its easternmost polygons to 0..360 for clipping.
+function shiftCoords(coords,fn){if(typeof coords[0]==='number')return fn(coords);return coords.map(c=>shiftCoords(c,fn))}
+function normalizeFeature(f){const out=JSON.parse(JSON.stringify(f));let all=[];const collect=c=>{if(typeof c[0]==='number')all.push(c[0]);else c.forEach(collect)};collect(out.geometry.coordinates);const negativeFarEast=all.some(x=>x< -160);if(negativeFarEast){ // Split multipolygons and shift ONLY antimeridian components
+if(out.geometry.type==='MultiPolygon')out.geometry.coordinates=out.geometry.coordinates.map(poly=>{const xs=[];collectPoly(poly,xs);return Math.min(...xs)<-160?shiftCoords(poly,p=>[p[0]<0?p[0]+360:p[0],p[1]]):poly});else out.geometry.coordinates=shiftCoords(out.geometry.coordinates,p=>[p[0]<-160?p[0]+360:p[0],p[1]])}return out}
+function collectPoly(c,xs){if(typeof c[0]==='number')xs.push(c[0]);else c.forEach(v=>collectPoly(v,xs))}
+function render(){updateHandles();if(!loaded)return;clearLayers();const edges=[-180,bounds[0],bounds[1],360];const totals=[0,0,0];for(const f of features){for(let i=0;i<3;i++){try{let clipped=turf.bboxClip(f,[edges[i],-90,edges[i+1],90]);if(!clipped.geometry||!clipped.geometry.coordinates.length)continue;let area=turf.area(clipped);if(!area||!isFinite(area))continue;totals[i]+=area;const layer=L.geoJSON(clipped,{style:{color:colors[i],weight:1,opacity:.65,fillColor:colors[i],fillOpacity:i===2?.9:.58,renderer:zoneRenderer},interactive:false}).addTo(map);if(i===2){ensureUSAPattern();layer.eachLayer(part=>{if(part._path)part._path.setAttribute('fill','url(#usa-diagonal-stripes)')})}layers.push(layer)}catch(e){console.warn('Polygon clipping skipped:',e)}}}let sum=totals.reduce((a,b)=>a+b,0);areaShares=totals.map(a=>sum?100*a/sum:0);['eu','turkia','usa'].forEach((id,i)=>document.getElementById(id).textContent=areaShares[i].toFixed(1)+'%')}
+function startDrag(which,event){dragging=which;event.preventDefault();event.stopPropagation();map.dragging.disable();event.target.setPointerCapture(event.pointerId)}
+function dragMove(which,event){if(dragging!==which)return;const r=wrap.getBoundingClientRect();setBoundary(which,longitudeAtPixel(event.clientX-r.left))}
+function stopDrag(event){if(dragging===null)return;dragging=null;map.dragging.enable();try{event.target.releasePointerCapture(event.pointerId)}catch(e){}}
+[[left,0],[right,1]].forEach(([el,i])=>{const h=el.querySelector('.handle');h.addEventListener('pointerdown',e=>startDrag(i,e));h.addEventListener('pointermove',e=>dragMove(i,e));h.addEventListener('pointerup',stopDrag);h.addEventListener('pointercancel',stopDrag);h.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();setBoundary(i,bounds[i]+(e.key==='ArrowRight'?1:-1))}})});
+document.getElementById('reset').onclick=()=>{bounds=[37,145];map.setView([59,75],3);render()};map.on('move zoom resize',updateHandles);
+const geoURL='https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+fetch(geoURL).then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json()}).then(data=>{const chosen=data.features.filter(f=>{const p=f.properties||{};return ['Russia','Ukraine','Russian Federation'].includes(p.ADMIN)||['Russia','Ukraine','Russian Federation'].includes(p.name)||['RUS','UKR'].includes(p.ISO3166_1_Alpha_3)});if(chosen.length!==2)throw Error('Expected Russia and Ukraine, found '+chosen.length);features=chosen.map(normalizeFeature);loaded=true;status.textContent='Ready · Drag the two vertical handles';render()}).catch(err=>{status.textContent='Could not load boundaries: '+err.message;readout.textContent='Map data unavailable';console.error(err)});
+updateHandles();
+</script>
+</body></html>
