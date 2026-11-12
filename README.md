@@ -1,1 +1,3 @@
 Americans are waiting for ALL the Europeans to arrive...
+
+aismap.dk <-- One of the current domains for the solution.
